@@ -1,0 +1,2 @@
+curl.exe "http://localhost:3000/api/fixtures?from=2025-08-14&to=2025-08-21"
+curl.exe "http://localhost:3000/api/results?from=2025-08-07&to=2025-08-14" 

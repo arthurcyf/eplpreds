@@ -1,0 +1,8 @@
+flask
+python-dotenv
+requests
+SQLAlchemy>=2.0
+apscheduler
+tzdata
+psycopg[binary]>=3.1   # only if using Postgres/Supabase
+psycopg2-binary>=2.9
