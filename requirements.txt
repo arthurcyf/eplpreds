@@ -1,8 +1,9 @@
-flask
-python-dotenv
-requests
+Flask>=3.1
+python-dotenv>=1.0
+requests>=2.32
 SQLAlchemy>=2.0
-apscheduler
+psycopg[binary]>=3.1  # or: psycopg[binary]>=3.1 and use postgresql+psycopg://
+APScheduler>=3.10
 tzdata
-psycopg[binary]>=3.1   # only if using Postgres/Supabase
-psycopg2-binary>=2.9
+pytest
+flask-login
