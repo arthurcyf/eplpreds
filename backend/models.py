@@ -25,6 +25,7 @@ class User(Base):
     email        = Column(String(255), unique=True, nullable=False)
     password_hash= Column(String(255), nullable=False)
     created_at   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    username     = Column(String(30), unique=True)  # nullable for existing users; enforce later
 
 class Group(Base):
     __tablename__ = "groups"
@@ -46,6 +47,7 @@ class GroupMember(Base):
     requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))  # NEW
     approved_at  = Column(DateTime(timezone=True))                                # NEW
     UniqueConstraint("group_id", "user_id", name="uq_member")
+    is_admin     = Column(Boolean, nullable=False, default=False)
 
 class Prediction(Base):
     __tablename__ = "predictions"

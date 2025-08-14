@@ -5,6 +5,9 @@ from .auth import bp as auth_bp, login_manager
 from .groups import bp as groups_bp
 from .predictions import bp as preds_bp
 from .leaderboard import bp as leaderboard_bp
+from .auth import bp as auth_bp, login_manager
+
+ALL_BLUEPRINTS = [auth_bp]
 
 def register_blueprints(app):
     app.register_blueprint(root_bp)
@@ -14,4 +17,8 @@ def register_blueprints(app):
     app.register_blueprint(groups_bp)
     app.register_blueprint(preds_bp)
     app.register_blueprint(leaderboard_bp)
+    for bp in ALL_BLUEPRINTS:
+        if bp.name in app.blueprints:  # already registered -> skip
+            continue
+        app.register_blueprint(bp)
     login_manager.init_app(app)

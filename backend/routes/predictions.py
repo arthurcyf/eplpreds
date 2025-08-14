@@ -1,9 +1,9 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import select, text
 from datetime import date, timedelta, datetime, timezone, time
 from .. import db
-from ..models import Prediction, Match, GroupMember
+from ..models import Prediction, Match, GroupMember, User
 from ..util import window_for
 
 bp = Blueprint("preds", __name__)
@@ -16,17 +16,14 @@ def windows(today: date):
     next_e = next_s + timedelta(days=6)
     return (cur_s, cur_e), (next_s, next_e)
 
-def _window_bounds(today: date):
-    return window_for(today)  # Thu→Wed
-
 def _open_close_times_local(anchor_day: date):
     """
     Open at Thu 09:00 LOCAL; close 2h before the FIRST match in that Thu→Wed window.
     """
-    start, end = _window_bounds(anchor_day)
+    start, end = window_for(anchor_day)
 
     # Open (local): Thu 09:00
-    tz = getattr(current_app, "LOCAL_TZ", None)  # attach ZoneInfo to app in create_app()
+    tz = getattr(current_app, "LOCAL_TZ", None)  # attach ZoneInfo to app in create_app() if you want local tz
     open_at = datetime.combine(start, time(9, 0))
     if tz:
         open_at = open_at.replace(tzinfo=tz)
@@ -38,17 +35,22 @@ def _open_close_times_local(anchor_day: date):
             from matches
             where date between :a and :b
         """), {"a": start, "b": end}).scalar()
-    if first_kick:
-        close_at = first_kick - timedelta(hours=2)
-    else:
-        close_at = open_at
-
+    close_at = (first_kick - timedelta(hours=2)) if first_kick else open_at
     return start, end, open_at, close_at
 
 def _is_open_now_for_current():
     start, end, open_at, close_at = _open_close_times_local(date.today())
     now = datetime.now(open_at.tzinfo) if open_at.tzinfo else datetime.now()
     return (open_at <= now < close_at), start, end, open_at, close_at
+
+def _require_member(s, group_id: int, user_id: int):
+    return bool(s.execute(
+        select(GroupMember).where(
+            GroupMember.group_id==group_id,
+            GroupMember.user_id==user_id,
+            GroupMember.status=="approved",
+        )
+    ).scalar_one_or_none())
 
 # -------- Endpoints --------
 
@@ -70,36 +72,46 @@ def current_window(group_id):
 
 @bp.get("/groups/<int:group_id>/predictions/matches")
 @login_required
-def matches_for_week(group_id):
-    # must be an APPROVED member
-    with db.SessionLocal() as s:
-        m = s.execute(
-            select(GroupMember).where(
-                GroupMember.group_id == group_id,
-                GroupMember.user_id == current_user.id,
-                GroupMember.status == "approved",
-            )
-        ).scalar_one_or_none()
-        if not m:
-            return {"error": "not in group"}, 403
-
+def matches_for_predictions(group_id):
+    """
+    List matches in the current/next window and include *my* latest saved picks
+    as `my_home_pred` / `my_away_pred`. Dates are returned as YYYY-MM-DD (no time).
+    """
     scope = (request.args.get("scope") or "current").lower()
     (cur_s, cur_e), (next_s, next_e) = windows(date.today())
     start, end = (cur_s, cur_e) if scope == "current" else (next_s, next_e)
 
     with db.SessionLocal() as s:
-        rows = s.execute(text("""
-          select match_id, date, time, home, away
-          from matches
-          where date between :a and :b
-          order by date, time
-        """), {"a": start, "b": end}).mappings().all()
+        if not _require_member(s, group_id, current_user.id):
+            return {"error": "not in group"}, 403
 
-    return {"scope": scope, "week_start": start.isoformat(), "matches": [dict(r) for r in rows]}
+        rows = s.execute(text("""
+          select m.match_id, m.date, m.home, m.away,
+                 p.home_pred as my_home_pred, p.away_pred as my_away_pred
+          from matches m
+          left join predictions p
+            on p.group_id=:g and p.user_id=:u and p.match_id=m.match_id
+          where m.date between :a and :b
+          order by m.date asc, m.match_id asc
+        """), {"g": group_id, "u": current_user.id, "a": start, "b": end}).mappings().all()
+
+    # ensure date-only strings
+    matches = []
+    for r in rows:
+        d = dict(r)
+        # cast date to ISO YYYY-MM-DD; avoid adding any time fields
+        d["date"] = (d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"]))
+        matches.append(d)
+
+    return {"scope": scope, "week_start": start.isoformat(), "matches": matches}
 
 @bp.post("/groups/<int:group_id>/predictions")
 @login_required
 def submit_predictions(group_id):
+    """
+    Save (upsert) user's predictions for matches in the selected window.
+    Enforces window open/close and per-match kickoff lock (UTC).
+    """
     body = request.get_json(silent=True) or {}
     entries = body.get("predictions", [])
     if not entries:
@@ -109,16 +121,13 @@ def submit_predictions(group_id):
     (cur_s, cur_e), (next_s, next_e) = windows(date.today())
     start, end = (cur_s, cur_e) if scope == "current" else (next_s, next_e)
 
-    # Window open/close check (Thu 09:00 -> 2h before first kickoff)
-    is_open, cur_start, cur_end, open_at, close_at = _is_open_now_for_current() if scope == "current" \
-        else _is_open_now_for_current()  # current logic is same shape; we anchor "next" below for clarity
+    # Window open/close check
+    is_open, _, _, open_at, close_at = _is_open_now_for_current()
     if scope == "next":
-        # compute open/close for NEXT window
         _, _, open_at, close_at = _open_close_times_local(next_s)
         now = datetime.now(open_at.tzinfo) if open_at.tzinfo else datetime.now()
         is_open = (open_at <= now < close_at)
 
-    # Dev/testing bypass
     allow_early_qs = request.args.get("allow_early") == "1"
     allow_early_cfg = bool(current_app.config.get("DEV_PRED_BYPASS"))
     if not (is_open or allow_early_qs or allow_early_cfg):
@@ -126,15 +135,7 @@ def submit_predictions(group_id):
 
     saved = 0
     with db.SessionLocal() as s:
-        # must be an APPROVED member
-        m = s.execute(
-            select(GroupMember).where(
-                GroupMember.group_id == group_id,
-                GroupMember.user_id == current_user.id,
-                GroupMember.status == "approved",
-            )
-        ).scalar_one_or_none()
-        if not m:
+        if not _require_member(s, group_id, current_user.id):
             return {"error": "not in group"}, 403
 
         for e in entries:
@@ -163,58 +164,52 @@ def submit_predictions(group_id):
                 updated_at=CURRENT_TIMESTAMP
             """), {"g": group_id, "u": current_user.id, "m": mid, "hp": hm, "ap": aw})
             saved += 1
+
         s.commit()
 
     return {"ok": True, "saved": saved, "scope": scope, "week_start": start.isoformat()}
 
 @bp.get("/groups/<int:group_id>/predictions/others")
 @login_required
-def others_predictions(group_id):
-    # Only visible after the CURRENT window closes
-    is_open, start, end, open_at, close_at = _is_open_now_for_current()
-    now = datetime.now(close_at.tzinfo) if close_at.tzinfo else datetime.now()
-    if now < close_at:
-        return {"error": "predictions not visible until window closes", "close_at": close_at.isoformat()}, 403
+def others_submitted(group_id):
+    """
+    Show other members' submitted predictions immediately (no need to wait until window closes).
+    """
+    scope = (request.args.get("scope") or "current").lower()
+    (cur_s, cur_e), (next_s, next_e) = windows(date.today())
+    start, end = (cur_s, cur_e) if scope == "current" else (next_s, next_e)
 
     with db.SessionLocal() as s:
-        # must be an APPROVED member
-        mem = s.execute(select(GroupMember).where(
-            GroupMember.group_id == group_id,
-            GroupMember.user_id == current_user.id,
-            GroupMember.status == "approved",
-        )).scalar_one_or_none()
-        if not mem:
+        if not _require_member(s, group_id, current_user.id):
             return {"error": "not in group"}, 403
 
         rows = s.execute(text("""
-          select m.match_id, m.home, m.away, p.user_id, p.home_pred, p.away_pred
-          from matches m
-          join predictions p on p.match_id = m.match_id
+          select p.match_id, m.home, m.away, u.username, u.email, p.home_pred, p.away_pred, p.updated_at
+          from predictions p
+          join matches m on m.match_id=p.match_id
+          join users u on u.id=p.user_id
           where p.group_id=:g and m.date between :a and :b
-          order by m.date, m.time, p.user_id
+          order by p.updated_at desc
         """), {"g": group_id, "a": start, "b": end}).mappings().all()
 
-    out = {}
-    for r in rows:
-        mid = r["match_id"]
-        out.setdefault(mid, {"match_id": mid, "home": r["home"], "away": r["away"], "predictions": []})
-        out[mid]["predictions"].append({
-            "user_id": r["user_id"],
-            "home_pred": r["home_pred"],
-            "away_pred": r["away_pred"]
-        })
-    return {"week_start": start.isoformat(), "items": list(out.values())}
+    items = [dict(r) for r in rows]
+    # no times returned except updated_at (useful for ordering/debug)
+    return {"scope": scope, "week_start": start.isoformat(), "predictions": items}
 
 @bp.get("/groups/<int:group_id>/predictions/stats")
 @login_required
 def prediction_stats(group_id):
-    # Only after CURRENT window closes
+    """
+    Aggregate stats (outcomes and exact score frequencies).
+    Kept gated until the *current* window closes to avoid influencing picks.
+    """
     is_open, start, end, open_at, close_at = _is_open_now_for_current()
     now = datetime.now(close_at.tzinfo) if close_at.tzinfo else datetime.now()
     if now < close_at:
         return {"error": "stats available after window closes", "close_at": close_at.isoformat()}, 403
 
     with db.SessionLocal() as s:
+        # (Optional) you can require membership here too, but these are group-bound stats
         outcome_rows = s.execute(text("""
           with picks as (
             select p.match_id,

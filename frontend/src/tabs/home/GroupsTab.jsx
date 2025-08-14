@@ -1,8 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Card from "../../components/Card.jsx";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api.js";
-import useLocalGroups from "../../hooks/useLocalGroups.js";
 
 export default function GroupsTab(){
   const [name, setName] = useState("");
@@ -10,16 +9,30 @@ export default function GroupsTab(){
   const [isPublic, setIsPublic] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [msg, setMsg] = useState(null);
-  const [myGroups, setMyGroups] = useLocalGroups();
+  const [myGroups, setMyGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  const loadMyGroups = async () => {
+    setLoading(true); setErr(null);
+    try {
+      let r;
+      try { r = await api("/groups/mine"); }
+      catch { r = await api("/groups?mine=1"); } // fallback if you don’t have /groups/mine
+      const items = r.groups || r.items || r || [];
+      setMyGroups(items);
+    } catch (ex) { setErr(ex?.data?.error || ex.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(()=>{ loadMyGroups(); }, []);
 
   const createGroup = async (e) => {
     e.preventDefault(); setMsg(null);
     try {
       const res = await api("/groups", { method: "POST", body: { name, description, is_public: isPublic } });
-      const g = { id: res.group_id, name: name || "My Group", code: res.invite_code };
-      setMyGroups([g, ...myGroups]);
       setName(""); setDescription(""); setIsPublic(false);
-      setMsg(`Created group #${res.group_id}`);
+      setMsg(`Created ${name || "group"} (#${res.group_id}).`);
+      await loadMyGroups();
     } catch (ex) { setMsg(ex?.data?.error || ex.message); }
   };
 
@@ -27,10 +40,9 @@ export default function GroupsTab(){
     e.preventDefault(); setMsg(null);
     try {
       const res = await api("/groups/join", { method: "POST", body: { code: joinCode } });
-      const g = { id: res.group_id, name: res.group_name, code: joinCode };
-      setMyGroups([g, ...myGroups.filter(x => x.id !== g.id)]);
       setJoinCode("");
-      setMsg(`Joined ${res.group_name} (${res.status})`);
+      setMsg(`Joined ${res.group_name} (${res.status}).`);
+      await loadMyGroups();
     } catch (ex) { setMsg(ex?.data?.error || ex.message); }
   };
 
@@ -41,13 +53,17 @@ export default function GroupsTab(){
         <form onSubmit={createGroup} className="grid gap-3 md:grid-cols-2">
           <div className="md:col-span-2">
             <label className="block text-sm mb-1">Name</label>
-            <input className="w-full border border-zinc-300 rounded-xl px-3 py-2" value={name} onChange={e=>setName(e.target.value)} placeholder="My EPL Group" />
+            <input className="w-full border border-zinc-300 rounded-xl px-3 py-2"
+              value={name} onChange={e=>setName(e.target.value)} placeholder="My EPL Group" />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm mb-1">Description</label>
-            <textarea className="w-full border border-zinc-300 rounded-xl px-3 py-2" value={description} onChange={e=>setDescription(e.target.value)} placeholder="Friends, family, colleagues…" />
+            <textarea className="w-full border border-zinc-300 rounded-xl px-3 py-2"
+              value={description} onChange={e=>setDescription(e.target.value)} placeholder="Friends, family, colleagues…" />
           </div>
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isPublic} onChange={e=>setIsPublic(e.target.checked)} /> Public group</label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={isPublic} onChange={e=>setIsPublic(e.target.checked)} /> Public group
+          </label>
           <div className="md:col-span-2 mt-1">
             <button className="px-3 py-2 rounded-xl bg-zinc-900 text-white">Create</button>
           </div>
@@ -57,7 +73,8 @@ export default function GroupsTab(){
       <Card>
         <h2 className="font-semibold mb-2">Join by code</h2>
         <form onSubmit={joinByCode} className="space-y-3">
-          <input className="w-full border border-zinc-300 rounded-xl px-3 py-2" value={joinCode} onChange={e=>setJoinCode(e.target.value)} placeholder="Invite code" />
+          <input className="w-full border border-zinc-300 rounded-xl px-3 py-2"
+            value={joinCode} onChange={e=>setJoinCode(e.target.value)} placeholder="Invite code" />
           <button className="w-full py-2 rounded-xl bg-zinc-900 text-white">Join</button>
         </form>
       </Card>
@@ -65,8 +82,14 @@ export default function GroupsTab(){
       <div className="md:col-span-3">
         {msg && <div className="mb-3 text-sm text-zinc-600">{msg}</div>}
         <Card>
-          <h2 className="font-semibold mb-3">My groups</h2>
-          {myGroups.length === 0 ? (
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-semibold">My groups</h2>
+            <button onClick={loadMyGroups} className="px-2 py-1 rounded-lg border">Reload</button>
+          </div>
+          {err && <div className="text-sm text-red-600 mb-2">{err}</div>}
+          {loading ? (
+            <div className="text-sm text-zinc-500">Loading…</div>
+          ) : myGroups.length === 0 ? (
             <div className="text-sm text-zinc-500">You haven't joined/created any groups yet.</div>
           ) : (
             <div className="grid md:grid-cols-2 gap-3">

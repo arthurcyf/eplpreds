@@ -7,6 +7,7 @@ from .config import Config
 from .db import init_db, Base
 from .models import Match  # ensure model is imported so metadata sees it
 from .routes import register_blueprints
+from .routes.auth import login_manager
 from .scheduler import start_scheduler
 from zoneinfo import ZoneInfo
 
@@ -38,6 +39,7 @@ def create_app():
     Base.metadata.create_all(engine)
 
     # routes
+    login_manager.init_app(app)
     register_blueprints(app)
 
     # start scheduler only in the main process (and allow disabling via env)
