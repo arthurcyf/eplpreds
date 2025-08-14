@@ -1,6 +1,6 @@
+from .root import bp as root_bp
 from .api import bp as api_bp
 from .admin import bp as admin_bp
-from .root import bp as root_bp
 from .auth import bp as auth_bp, login_manager
 from .groups import bp as groups_bp
 from .predictions import bp as preds_bp

@@ -8,6 +8,7 @@ from .db import init_db, Base
 from .models import Match  # ensure model is imported so metadata sees it
 from .routes import register_blueprints
 from .scheduler import start_scheduler
+from zoneinfo import ZoneInfo
 
 __all__ = ["create_app"]
 
@@ -19,7 +20,9 @@ def create_app():
 
     app = Flask(__name__)
     # expose a few settings to the app (handy for routes/logging)
+    app.LOCAL_TZ = ZoneInfo(app.config.get("TIMEZONE", "Asia/Singapore"))
     app.config.update(
+        DEV_PRED_BYPASS=os.getenv("DEV_PRED_BYPASS","0") in ("1","true","True"),
         TIMEZONE=cfg.timezone,
         DATABASE_URL=cfg.database_url,
         PORT=cfg.port,

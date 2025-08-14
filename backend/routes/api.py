@@ -1,8 +1,10 @@
 from flask import Blueprint, request, jsonify
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone, datetime
 from zoneinfo import ZoneInfo
 from ..config import Config
 from ..services.football_data import fetch_matches, to_local_from_utc_iso
+from .. import db
+from sqlalchemy import text
 
 bp = Blueprint("api", __name__)
 cfg = Config.from_env()
@@ -47,3 +49,18 @@ def results():
     if not start or not end: start, end = prev_range(days)
     matches = fetch_matches(cfg.pl_code, cfg.fd_token, start, end, "FINISHED")
     return jsonify({"success": True, "results": normalize(matches)})
+
+@bp.get("/upcoming")
+def upcoming():
+    limit = int(request.args.get("limit", 10))
+    now_utc = datetime.now(timezone.utc)  # robust UTC “now”
+    with db.SessionLocal() as s:
+        rows = s.execute(text("""
+            select match_id, date, time, home, away
+            from matches
+            where (status is null or status not in ('FT','AET','PEN'))
+              and (utc_kickoff > :now_utc)
+            order by utc_kickoff asc
+            limit :n
+        """), {"now_utc": now_utc, "n": limit}).mappings().all()
+    return {"items": [dict(r) for r in rows]}

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Date, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Date, Boolean, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from .db import Base
@@ -32,13 +32,19 @@ class Group(Base):
     name         = Column(String(120), nullable=False)
     owner_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
     invite_code  = Column(String(16), unique=True, nullable=False)
+    description  = Column(Text)                                # NEW
+    is_public    = Column(Boolean, nullable=False, default=False)  # NEW
+    join_policy  = Column(String(32), nullable=False, default="invite_only")  # NEW: 'public'|'invite_only'
     created_at   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 class GroupMember(Base):
     __tablename__ = "group_members"
-    id        = Column(Integer, primary_key=True, autoincrement=True)
-    group_id  = Column(Integer, ForeignKey("groups.id"), nullable=False)
-    user_id   = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    group_id     = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status       = Column(String(16), nullable=False, default="approved")        # NEW
+    requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))  # NEW
+    approved_at  = Column(DateTime(timezone=True))                                # NEW
     UniqueConstraint("group_id", "user_id", name="uq_member")
 
 class Prediction(Base):
