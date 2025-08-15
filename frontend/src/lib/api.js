@@ -1,7 +1,9 @@
 export const BASE_URL = ""; // e.g. "http://localhost:3000" if different origin
+export const API_BASE = import.meta.env.VITE_API_URL;
+export const apiGet = (p, opts) => fetch(`${API_BASE}${p}`, { ...opts, credentials: "include" });
 
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
-  const res = await fetch(`${BASE_URL}${path}`.replace(/\/+$/, ""), {
+  const res = await fetch(`${API_BASE}${path}`.replace(/\/+$/, ""), {
     method,
     headers: { "Content-Type": "application/json", ...headers },
     credentials: "include",
