@@ -18,3 +18,11 @@ def start_scheduler(app):
     sched.start()
     app.logger.info("Scheduler started: Thursdays 09:00 local time")
     return sched
+
+def main():
+    from backend import create_app
+    app = create_app()
+    start_scheduler(app)  # should BLOCK (e.g., APScheduler BlockingScheduler.start())
+
+if __name__ == "__main__":
+    main()
