@@ -44,7 +44,7 @@ def create_app():
     register_blueprints(app)
 
     CORS(app, resources={r"/*": {"origins": [
-        "https://your-frontend.vercel.app",   # replace after deploying frontend
+        "https://eplpreds-1p75.vercel.app/",   # replace after deploying frontend
         "https://your-domain.com"             # if you’ll add a custom domain
     ]}})
 
