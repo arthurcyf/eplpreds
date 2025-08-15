@@ -10,6 +10,7 @@ from .routes import register_blueprints
 from .routes.auth import login_manager
 from .scheduler import start_scheduler
 from zoneinfo import ZoneInfo
+from flask_cors import CORS
 
 __all__ = ["create_app"]
 
@@ -41,6 +42,11 @@ def create_app():
     # routes
     login_manager.init_app(app)
     register_blueprints(app)
+
+    CORS(app, resources={r"/*": {"origins": [
+        "https://your-frontend.vercel.app",   # replace after deploying frontend
+        "https://your-domain.com"             # if you’ll add a custom domain
+    ]}})
 
     # start scheduler only in the main process (and allow disabling via env)
     if os.environ.get("DISABLE_SCHEDULER") not in ("1", "true", "True"):
