@@ -208,18 +208,25 @@ def get_group(group_id):
     with db.SessionLocal() as s:
         g = s.get(Group, group_id)
         if not g:
-            return {"error":"not found"}, 404
+            return {"error": "not found"}, 404
         if not _is_member(s, group_id, current_user.id):
-            return {"error":"forbidden"}, 403
+            return {"error": "forbidden"}, 403
 
         is_admin = _is_admin(s, group_id, current_user.id) or (g.owner_id == current_user.id)
+
+        # ensure there is a code (in case older rows missed it)
+        if not g.invite_code:
+            g.invite_code = _code()
+            s.commit()
+
         return {
             "id": g.id,
             "name": g.name,
             "description": g.description,
             "is_public": g.is_public,
             "join_policy": g.join_policy,
-            "is_admin": is_admin
+            "is_admin": is_admin,
+            "invite_code": g.invite_code,   # ← add this
         }
 
 @bp.get("/groups/<int:group_id>/members")

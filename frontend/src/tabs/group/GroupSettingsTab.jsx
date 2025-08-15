@@ -3,6 +3,7 @@ import Card from "../../components/Card.jsx";
 import { api } from "../../lib/api.js";
 
 export default function GroupSettingsTab({ groupId }) {
+  const [group, setGroup] = useState(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPublic, setIsPublic] = useState(false);
@@ -10,6 +11,11 @@ export default function GroupSettingsTab({ groupId }) {
   const [msg, setMsg] = useState(null);
   const [pending, setPending] = useState([]);
   const [err, setErr] = useState(null);
+
+  // load basic group info (incl. invite_code, is_admin)
+  useEffect(() => {
+    api(`/groups/${groupId}`).then(setGroup).catch(() => {});
+  }, [groupId]);
 
   const loadRequests = async () => {
     setErr(null);
@@ -38,6 +44,8 @@ export default function GroupSettingsTab({ groupId }) {
         },
       });
       setMsg("Settings saved.");
+      // refresh header info (in case name/policy/code changed server-side)
+      api(`/groups/${groupId}`).then(setGroup).catch(() => {});
     } catch (ex) {
       setMsg(ex?.data?.error || ex.message);
     }
@@ -84,11 +92,32 @@ export default function GroupSettingsTab({ groupId }) {
     }
   }
 
+  const inviteLink =
+    group?.invite_code ? `${window.location.origin}/join/${group.invite_code}` : "";
+
   return (
     <div className="grid lg:grid-cols-3 gap-4">
       <Card className="lg:col-span-2">
-        <h2 className="font-semibold mb-3">Group settings</h2>
+        {/* Header + Invite code badge */}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Group settings</h2>
+          {group?.invite_code && (
+            <div className="text-xs flex items-center gap-2">
+              <span className="text-zinc-500">Code:</span>
+              <span className="font-mono">{group.invite_code}</span>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl bg-zinc-900 text-white"
+                onClick={() => navigator.clipboard.writeText(group.invite_code)}
+              >
+                Copy code
+              </button>
+            </div>
+          )}
+        </div>
+
         {msg && <div className="text-sm text-zinc-600 mb-2">{msg}</div>}
+
         <form onSubmit={save} className="grid gap-3 md:grid-cols-2">
           <div className="md:col-span-2">
             <label className="block text-sm mb-1">Name</label>
@@ -124,10 +153,10 @@ export default function GroupSettingsTab({ groupId }) {
             <select
               value={joinPolicy}
               onChange={(e) => setJoinPolicy(e.target.value)}
-              className="border border-zinc-300 rounded-xl px-3 py-2"
+              className="px-3 py-2 rounded-xl bg-zinc-900 text-white"
             >
-              <option value="invite_only">invite_only</option>
-              <option value="public">public</option>
+              <option value="invite_only">Invite Only</option>
+              <option value="public">Public</option>
             </select>
           </div>
           <div className="md:col-span-2 mt-1">
@@ -147,7 +176,7 @@ export default function GroupSettingsTab({ groupId }) {
           <h3 className="font-semibold">Join requests</h3>
           <button
             onClick={loadRequests}
-            className="px-2 py-1 rounded-lg border"
+            className="px-3 py-2 rounded-xl bg-zinc-900 text-white"
           >
             Reload
           </button>
@@ -210,7 +239,7 @@ export default function GroupSettingsTab({ groupId }) {
               </div>
               <button
                 onClick={() => toggleAdmin(m)}
-                className="px-3 py-1.5 rounded-xl border"
+                className="px-3 py-2 rounded-xl bg-zinc-900 text-white"
               >
                 {m.is_admin ? "Remove admin" : "Make admin"}
               </button>
